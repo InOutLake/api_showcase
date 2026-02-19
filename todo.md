@@ -1,0 +1,1 @@
+- [ ] Setup init commit and get rid of unnecessary stuff.
