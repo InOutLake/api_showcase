@@ -5,18 +5,15 @@ from typing import Any
 import anyio
 import fastapi
 import redis.asyncio as redis
-from arq import create_pool
-from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from ..api.dependencies import get_current_superuser
-from ..core.utils.rate_limit import rate_limiter
 from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..middleware.logger_middleware import LoggerMiddleware
 from ..models import *  # noqa: F403
+from ..presentation.dependencies import get_current_superuser
 from .config import (
     AppSettings,
     ClientSideCacheSettings,
@@ -50,26 +47,6 @@ async def create_redis_cache_pool() -> None:
 async def close_redis_cache_pool() -> None:
     if cache.client is not None:
         await cache.client.aclose()  # type: ignore
-
-
-# -------------- queue --------------
-async def create_redis_queue_pool() -> None:
-    queue.pool = await create_pool(RedisSettings(host=settings.REDIS_QUEUE_HOST, port=settings.REDIS_QUEUE_PORT))
-
-
-async def close_redis_queue_pool() -> None:
-    if queue.pool is not None:
-        await queue.pool.aclose()  # type: ignore
-
-
-# -------------- rate limit --------------
-async def create_redis_rate_limit_pool() -> None:
-    rate_limiter.initialize(settings.REDIS_RATE_LIMIT_URL)  # type: ignore
-
-
-async def close_redis_rate_limit_pool() -> None:
-    if rate_limiter.client is not None:
-        await rate_limiter.client.aclose()  # type: ignore
 
 
 # -------------- application --------------
@@ -106,12 +83,6 @@ def lifespan_factory(
             if isinstance(settings, RedisCacheSettings):
                 await create_redis_cache_pool()
 
-            if isinstance(settings, RedisQueueSettings):
-                await create_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await create_redis_rate_limit_pool()
-
             if create_tables_on_start:
                 await create_tables()
 
@@ -122,12 +93,6 @@ def lifespan_factory(
         finally:
             if isinstance(settings, RedisCacheSettings):
                 await close_redis_cache_pool()
-
-            if isinstance(settings, RedisQueueSettings):
-                await close_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await close_redis_rate_limit_pool()
 
     return lifespan
 
