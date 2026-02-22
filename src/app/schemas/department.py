@@ -30,7 +30,7 @@ class DepartmentGetQuery(IDSchema):
 
 class DepartmentNested(BaseModel):
     department: Department
-    children: list[DepartmentNested]
+    children: list[DepartmentNested] | None = None
     employees: list[Employee] | None = None
 
 
