@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
@@ -18,8 +19,25 @@ class DepartmentRepository:
     def __init__(self):
         self.db: Annotated[AsyncSession, Depends(async_get_db)]
 
-    async def create_department(self, name: str, parent_id: int | None) -> Department:
-        stmt = insert(Department).values(name=name, parent_id=parent_id).returning(Department)
+    async def create_department(self, name: str, parent_id: int | None, **kwargs) -> Department:
+        stmt = insert(Department).values(name=name, parent_id=parent_id, **kwargs).returning(Department)
+        result = (await self.db.execute(stmt)).scalars().one()
+        return result
+
+    async def add_employee(
+        self, department_id: int, full_name: str, position: str, hired_at: datetime | None, **kwargs
+    ) -> Employee:
+        stmt = (
+            insert(Employee)
+            .values(
+                department_id=department_id,
+                full_name=full_name,
+                position=position,
+                hired_at=hired_at,
+                **kwargs,
+            )
+            .returning(Employee)
+        )
         result = (await self.db.execute(stmt)).scalars().one()
         return result
 
