@@ -1,7 +1,7 @@
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
 
 from src.app.core.schemas import CreatedAtSchema, IDSchema
 

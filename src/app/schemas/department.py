@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.app.schemas.shared import NOT_ASSIGNED, NotAssigned
+
 from ..core.schemas import CreatedAtSchema, IDSchema
 from .employee import Employee
 
@@ -38,8 +40,10 @@ class DepartmentNested(BaseModel):
 
 
 class DepartmentUpdate(BaseModel):
-    name: DEPARTMENT_NAME_TYPE | None
-    parent_id: int | None
+    name: DEPARTMENT_NAME_TYPE | NotAssigned = NOT_ASSIGNED
+    parent_id: int | None | NotAssigned = NOT_ASSIGNED
+
+    model_config = ConfigDict(str_strip_whitespace=True)
 
 
 class DepartmentDeleteQueryCascade(IDSchema):
@@ -48,7 +52,7 @@ class DepartmentDeleteQueryCascade(IDSchema):
 
 class DepartmentDeleteQueryReassign(IDSchema):
     mode: Literal["reassign"]
-    reassign_to_department_id: int
+    target_id: int
 
 
 DepartmentDeleteQuery = DepartmentDeleteQueryCascade | DepartmentDeleteQueryReassign
