@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.schemas import CreatedAtSchema, IDSchema
 from .employee import Employee
@@ -14,10 +14,11 @@ class DepartmentBase(BaseModel):
     name: DEPARTMENT_NAME_TYPE
     parent_id: int | None
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = ConfigDict(str_strip_whitespace=True)
 
 
-class Department(DepartmentBase, CreatedAtSchema, IDSchema): ...
+class Department(DepartmentBase, CreatedAtSchema, IDSchema):
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DepartmentCreate(DepartmentBase): ...
@@ -32,6 +33,8 @@ class DepartmentNested(BaseModel):
     department: Department
     children: list[DepartmentNested] | None = None
     employees: list[Employee] | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DepartmentUpdate(BaseModel):

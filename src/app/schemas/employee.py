@@ -12,6 +12,9 @@ class EmployeeBase(BaseModel):
     position: str
     hired_at: PastDate | None
 
+    class Config:
+        str_strip_whitespace = True
+
 
 class EmployeeCreate(EmployeeBase): ...
 
