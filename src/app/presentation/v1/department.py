@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from ...core.utils.cache import cache
 from ...repositories.department import DepartmentRepositoryDep
 from ...schemas.department import (
     Department,
@@ -24,30 +25,35 @@ router = APIRouter(prefix="departments", tags=["department"])
 
 
 @router.post("/", response_model=Department)
+@cache(key_prefix="department_{id}")
 async def create_department(data: DepartmentCreate, rep: DepartmentRepositoryDep):
     department = await rep.create_department(**data.model_dump())
     return department
 
 
 @router.post("/{id}/employees", response_model=Employee)
+@cache(key_prefix="department_{department_id}")
 async def create_employee(data: EmployeeCreate, rep: DepartmentRepositoryDep):
     employee = await rep.add_employee(**data.model_dump())
     return employee
 
 
 @router.get("/{id}", response_model=DepartmentNested)
+@cache(key_prefix="department_{id}:nested:{depth}:{include_employees}")
 async def get_department_details(data: DepartmentGetQuery, rep: DepartmentRepositoryDep):
     department = await rep.get_department_nested(**data.model_dump())
     return department
 
 
 @router.patch("/{id}", response_model=Department)
+@cache(key_prefix="department_{id}")
 async def patch_department(data: DepartmentUpdate, rep: DepartmentRepositoryDep):
-    department = rep.update_department(**data.model_dump())
+    department = await rep.update_department(**data.model_dump())
     return department
 
 
 @router.delete("/{id}", status_code=204)
+@cache(key_prefix="department_{id}")
 async def delete_department(data: DepartmentDeleteQuery, rep: DepartmentRepositoryDep):
     if isinstance(data, DepartmentDeleteQueryCascade):
         await rep.delete_department_cascade(data.id)
