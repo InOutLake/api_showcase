@@ -8,7 +8,7 @@ from ..config import settings
 
 
 class Base(DeclarativeBase, MappedAsDataclass):
-    pass
+    __table_args__ = {"extend_existing": True}
 
 
 DATABASE_URI = settings.POSTGRES_URI

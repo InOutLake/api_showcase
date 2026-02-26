@@ -1,45 +1,46 @@
-from unittest.mock import AsyncMock, Mock
-
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.app.core.db.database import DATABASE_URL, async_get_db
 from src.app.main import app
 
-engine = create_async_engine(DATABASE_URL)
-TestingSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+
+@pytest_asyncio.fixture(scope="function")
+async def engine():
+    engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+    yield engine
+    await engine.dispose()
 
 
-@pytest_asyncio.fixture
-async def db_session():
-    """Provides a transactional session that rolls back after every test."""
+@pytest_asyncio.fixture(scope="function")
+async def test_db_session(engine):
     async with engine.connect() as connection:
         await connection.begin()
-        async with TestingSessionLocal(bind=connection).begin() as session:
+
+        session_factory = async_sessionmaker(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+        async with session_factory() as session:
             yield session
             await session.rollback()
 
 
-@pytest_asyncio.fixture
-async def client(db_session):
-    """Provides an AsyncClient with the DB dependency overridden."""
+@pytest_asyncio.fixture(scope="function")
+async def patched_app(test_db_session):
+    async def override_dependency():
+        yield test_db_session
 
-    async def override_get_db():
-        yield db_session
+    app.dependency_overrides[async_get_db] = override_dependency
+    yield app
+    app.dependency_overrides.pop(async_get_db)
 
-    app.dependency_overrides[async_get_db] = override_get_db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+
+@pytest_asyncio.fixture(scope="function")
+async def client(patched_app):
+    async with AsyncClient(transport=ASGITransport(app=patched_app), base_url="http://testserver") as ac:
         yield ac
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def mock_redis():
-    """Mock Redis connection for unit tests."""
-    mock_redis = Mock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.set = AsyncMock(return_value=True)
-    mock_redis.delete = AsyncMock(return_value=True)
-    return mock_redis
+    await ac.aclose()

@@ -64,13 +64,14 @@ def upgrade() -> None:
                 REFERENCES department(id)
                 ON DELETE CASCADE,
 
-            CONSTRAINT depratment_parent_id_unique_name
+            CONSTRAINT department_parent_id_unique_name
                 UNIQUE NULLS NOT DISTINCT (parent_id, name),
 
             CONSTRAINT department_parent_id_not_itself
                 CHECK (parent_id <> id)
         );
-
+    """)
+    op.execute("""
         CREATE TRIGGER trg_prevent_department_cycle
         BEFORE INSERT OR UPDATE OF parent_id on department
         FOR EACH ROW
@@ -78,7 +79,7 @@ def upgrade() -> None:
     """)
 
     op.execute(f"""
-        CREAETE TABLE employee (
+        CREATE TABLE employee (
             {ID},
             department_id INT,
             full_name VARCHAR(200) NOT NULL,
@@ -89,7 +90,7 @@ def upgrade() -> None:
             CONSTRAINT fk_employee_department_id
                 FOREIGN KEY(department_id)
                 REFERENCES department(id)
-                ON_DELETE CASCADE
+                ON DELETE CASCADE
         );
     """)
 

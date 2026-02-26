@@ -7,12 +7,13 @@ license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.14, <4"
 dependencies = [
+    "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "dotenv>=0.9.9",
     "fastapi>=0.129.0",
     "fastcrud>=0.21.0",
     "httpx>=0.28.1",
-    "redis[hiredis]>=7.2.0",
+    "pydantic-settings>=2.13.1",
     "sqlalchemy>=2.0.46",
     "structlog>=25.5.0",
     "uvicorn>=0.41.0",
@@ -20,6 +21,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "debugpy>=1.8.20",
     "faker>=40.4.0",
     "mypy>=1.19.1",
     "pre-commit>=4.3.0",
@@ -85,7 +87,8 @@ convention = "numpy"
 filterwarnings = [
     "ignore::PendingDeprecationWarning:starlette.formparsers",
 ]
-
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
 python_version = "3.14"

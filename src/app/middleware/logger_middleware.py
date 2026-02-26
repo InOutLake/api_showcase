@@ -1,37 +1,21 @@
-import uuid
-
-import structlog
-from fastapi import FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-class LoggerMiddleware(BaseHTTPMiddleware):
-    """Middleware to add request ID to the context variables.
+class LoggerMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-    Parameters
-    ----------
-    app: FastAPI
-        The FastAPI application instance.
-    """
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
 
-    def __init__(self, app: FastAPI) -> None:
-        super().__init__(app)
+        # Logic for request_id or pre-logging goes here
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """
-        Add request ID to the context variables.
-        """
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(
-            request_id=request_id,
-            client_host=request.client.host if request.client else None,
-            status_code=None,
-            path=request.url.path,
-            method=request.method,
-        )
-        response = await call_next(request)
-        structlog.contextvars.bind_contextvars(status_code=response.status_code)
-        response.headers["X-Request-ID"] = request_id
-        return response
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                # message["status"] contains the status code
+                # Perform your logging here
+                pass
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)

@@ -100,6 +100,7 @@ file_handler = RotatingFileHandler(
     maxBytes=settings.FILE_LOG_MAX_BYTES,
     backupCount=settings.FILE_LOG_BACKUP_COUNT,
 )
+print(f"DEBUG: Logs being saved to: {os.path.abspath(LOG_DIR)}")
 file_handler.setLevel(settings.FILE_LOG_LEVEL)
 file_handler.setFormatter(
     build_formatter(

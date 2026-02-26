@@ -1,56 +1,22 @@
-from fastapi import FastAPI, Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-class ClientCacheMiddleware(BaseHTTPMiddleware):
-    """Middleware to set the `Cache-Control` header for client-side caching on all responses.
-
-    Parameters
-    ----------
-    app: FastAPI
-        The FastAPI application instance.
-    max_age: int, optional
-        Duration (in seconds) for which the response should be cached. Defaults to 60 seconds.
-
-    Attributes
-    ----------
-    max_age: int
-        Duration (in seconds) for which the response should be cached.
-
-    Methods
-    -------
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        Process the request and set the `Cache-Control` header in the response.
-
-    Note
-    ----
-        - The `Cache-Control` header instructs clients (e.g., browsers)
-        to cache the response for the specified duration.
-    """
-
-    def __init__(self, app: FastAPI, max_age: int = 60) -> None:
-        super().__init__(app)
+class ClientCacheMiddleware:
+    def __init__(self, app: ASGIApp, max_age: int = 60) -> None:
+        self.app = app
         self.max_age = max_age
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Process the request and set the `Cache-Control` header in the response.
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        Parameters
-        ----------
-        request: Request
-            The incoming request.
-        call_next: RequestResponseEndpoint
-            The next middleware or route handler in the processing chain.
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = f"public, max-age={self.max_age}"
 
-        Returns
-        -------
-        Response
-            The response object with the `Cache-Control` header set.
+            await send(message)
 
-        Note
-        ----
-            - This method is automatically called by Starlette for processing the request-response cycle.
-        """
-        response: Response = await call_next(request)
-        response.headers["Cache-Control"] = f"public, max-age={self.max_age}"
-        return response
+        await self.app(scope, receive, send_wrapper)

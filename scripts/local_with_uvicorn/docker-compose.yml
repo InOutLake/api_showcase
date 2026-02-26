@@ -17,40 +17,19 @@ services:
     #    - "8000"
     depends_on:
       - db
-      - redis
     volumes:
-      - ./src/app:/code/app
-      - ./src/.env:/code/.env
+      - ./src/app:/app/src/app
+      - ./src/.env:/app/.env
 
-  worker:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    command: arq app.core.worker.settings.WorkerSettings
-    env_file:
-      - ./src/.env
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./src/app:/code/app
-      - ./src/.env:/code/.env
 
   db:
-    image: postgres:13
+    image: postgres:16-alpine
     env_file:
       - ./src/.env
     volumes:
       - postgres-data:/var/lib/postgresql/data
     expose:
       - "5432"
-
-  redis:
-    image: redis:alpine
-    volumes:
-      - redis-data:/data
-    expose:
-      - "6379"
 
   #-------- uncomment to run with nginx --------
   # nginx:
@@ -62,20 +41,6 @@ services:
   #   depends_on:
   #     - web
 
-  #-------- uncomment to create first superuser --------
-  create_superuser:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - ./src/.env
-    depends_on:
-      - db
-      - web
-    command: python -m src.scripts.create_first_superuser
-    volumes:
-      - ./src:/code/src
-
   #-------- uncomment to run tests --------
   pytest:
     build: 
@@ -85,11 +50,14 @@ services:
       - ./src/.env
     depends_on:
       - db
-      - create_superuser
-      - redis
-    command: python -m pytest ./tests
+    command: pytest tests
+    # command: debugpy --listen 0.0.0.0:5678 --wait-for-client -m pytest tests
+    # ports:
+    #   - 5678:5678
     volumes:
-      - .:/code
+      - ./src/app:/app/src/app
+      - ./tests:/app/tests
+      - ./src/.env:/app/.env
 
   #-------- uncomment to create first tier --------
   # create_tier:
