@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2025 InOutLake
 Copyright (c) 2023 Igor Magalhães
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -1,102 +1,46 @@
-from collections.abc import Callable, Generator
-from typing import Any
-from unittest.mock import AsyncMock, Mock
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import pytest
-from faker import Faker
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session
-
-from src.app.core.config import settings
+from src.app.core.db.database import DATABASE_URL, async_get_db
 from src.app.main import app
 
-DATABASE_URI = settings.POSTGRES_URI
-DATABASE_PREFIX = settings.POSTGRES_SYNC_PREFIX
 
-sync_engine = create_engine(DATABASE_PREFIX + DATABASE_URI)
-local_session = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
-
-
-fake = Faker()
+@pytest_asyncio.fixture(scope="function")
+async def engine():
+    engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+    yield engine
+    await engine.dispose()
 
 
-@pytest.fixture(scope="session")
-def client() -> Generator[TestClient, Any, None]:
-    with TestClient(app) as _client:
-        yield _client
-    app.dependency_overrides = {}
-    sync_engine.dispose()
+@pytest_asyncio.fixture(scope="function")
+async def test_db_session(engine):
+    async with engine.connect() as connection:
+        await connection.begin()
+
+        session_factory = async_sessionmaker(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+        async with session_factory() as session:
+            yield session
+            await session.rollback()
 
 
-@pytest.fixture
-def db() -> Generator[Session, Any, None]:
-    session = local_session()
-    yield session
-    session.close()
+@pytest_asyncio.fixture(scope="function")
+async def patched_app(test_db_session):
+    async def override_dependency():
+        yield test_db_session
+
+    app.dependency_overrides[async_get_db] = override_dependency
+    yield app
+    app.dependency_overrides.pop(async_get_db)
 
 
-def override_dependency(dependency: Callable[..., Any], mocked_response: Any) -> None:
-    app.dependency_overrides[dependency] = lambda: mocked_response
-
-
-@pytest.fixture
-def mock_db():
-    """Mock database session for unit tests."""
-    return Mock(spec=AsyncSession)
-
-
-@pytest.fixture
-def mock_redis():
-    """Mock Redis connection for unit tests."""
-    mock_redis = Mock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.set = AsyncMock(return_value=True)
-    mock_redis.delete = AsyncMock(return_value=True)
-    return mock_redis
-
-
-@pytest.fixture
-def sample_user_data():
-    """Generate sample user data for tests."""
-    return {
-        "name": fake.name(),
-        "username": fake.user_name(),
-        "email": fake.email(),
-        "password": fake.password(),
-    }
-
-
-@pytest.fixture
-def sample_user_read():
-    """Generate a sample UserRead object."""
-    from uuid6 import uuid7
-
-    from src.app.schemas.user import UserRead
-
-    return UserRead(
-        id=1,
-        uuid=uuid7(),
-        name=fake.name(),
-        username=fake.user_name(),
-        email=fake.email(),
-        profile_image_url=fake.image_url(),
-        is_superuser=False,
-        created_at=fake.date_time(),
-        updated_at=fake.date_time(),
-        tier_id=None,
-    )
-
-
-@pytest.fixture
-def current_user_dict():
-    """Mock current user from auth dependency."""
-    return {
-        "id": 1,
-        "username": fake.user_name(),
-        "email": fake.email(),
-        "name": fake.name(),
-        "is_superuser": False,
-    }
+@pytest_asyncio.fixture(scope="function")
+async def client(patched_app):
+    async with AsyncClient(transport=ASGITransport(app=patched_app), base_url="http://testserver") as ac:
+        yield ac
+    await ac.aclose()

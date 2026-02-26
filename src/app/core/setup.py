@@ -1,22 +1,20 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import _AsyncGeneratorContextManager, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-import anyio
 import fastapi
-import redis.asyncio as redis
-from arq import create_pool
-from arq.connections import RedisSettings
-from fastapi import APIRouter, Depends, FastAPI
+from alembic import command
+from alembic.config import Config
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from ..api.dependencies import get_current_superuser
-from ..core.utils.rate_limit import rate_limiter
 from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..middleware.logger_middleware import LoggerMiddleware
 from ..models import *  # noqa: F403
+from . import logger
 from .config import (
     AppSettings,
     ClientSideCacheSettings,
@@ -24,72 +22,26 @@ from .config import (
     DatabaseSettings,
     EnvironmentOption,
     EnvironmentSettings,
-    RedisCacheSettings,
-    RedisQueueSettings,
-    RedisRateLimiterSettings,
     settings,
 )
-from .db.database import Base
-from .db.database import async_engine as engine
-from .utils import cache, queue
 
 
 # -------------- database --------------
-# TODO: move to alembic
-async def create_tables() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def run_migrations() -> None:
+    alembic_cfg = Config(Path(__file__).parent.parent.parent / "alembic.ini")
+    command.upgrade(alembic_cfg, "head")
 
 
-# -------------- cache --------------
-async def create_redis_cache_pool() -> None:
-    cache.pool = redis.ConnectionPool.from_url(settings.REDIS_CACHE_URL)
-    cache.client = redis.Redis.from_pool(cache.pool)  # type: ignore
+async def init_db() -> None:
+    import asyncio
 
-
-async def close_redis_cache_pool() -> None:
-    if cache.client is not None:
-        await cache.client.aclose()  # type: ignore
-
-
-# -------------- queue --------------
-async def create_redis_queue_pool() -> None:
-    queue.pool = await create_pool(RedisSettings(host=settings.REDIS_QUEUE_HOST, port=settings.REDIS_QUEUE_PORT))
-
-
-async def close_redis_queue_pool() -> None:
-    if queue.pool is not None:
-        await queue.pool.aclose()  # type: ignore
-
-
-# -------------- rate limit --------------
-async def create_redis_rate_limit_pool() -> None:
-    rate_limiter.initialize(settings.REDIS_RATE_LIMIT_URL)  # type: ignore
-
-
-async def close_redis_rate_limit_pool() -> None:
-    if rate_limiter.client is not None:
-        await rate_limiter.client.aclose()  # type: ignore
-
-
-# -------------- application --------------
-async def set_threadpool_tokens(number_of_tokens: int = 100) -> None:
-    limiter = anyio.to_thread.current_default_thread_limiter()
-    limiter.total_tokens = number_of_tokens
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, run_migrations)
 
 
 def lifespan_factory(
-    settings: (
-        DatabaseSettings
-        | RedisCacheSettings
-        | AppSettings
-        | ClientSideCacheSettings
-        | CORSSettings
-        | RedisQueueSettings
-        | RedisRateLimiterSettings
-        | EnvironmentSettings
-    ),
-    create_tables_on_start: bool = True,
+    settings: (DatabaseSettings | AppSettings | ClientSideCacheSettings | CORSSettings | EnvironmentSettings),
+    run_migrations_on_start: bool = True,
 ) -> Callable[[FastAPI], _AsyncGeneratorContextManager[Any]]:
     """Factory to create a lifespan async context manager for a FastAPI app."""
 
@@ -100,34 +52,11 @@ def lifespan_factory(
         initialization_complete = Event()
         app.state.initialization_complete = initialization_complete
 
-        await set_threadpool_tokens()
+        if run_migrations_on_start:
+            await init_db()
 
-        try:
-            if isinstance(settings, RedisCacheSettings):
-                await create_redis_cache_pool()
-
-            if isinstance(settings, RedisQueueSettings):
-                await create_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await create_redis_rate_limit_pool()
-
-            if create_tables_on_start:
-                await create_tables()
-
-            initialization_complete.set()
-
-            yield
-
-        finally:
-            if isinstance(settings, RedisCacheSettings):
-                await close_redis_cache_pool()
-
-            if isinstance(settings, RedisQueueSettings):
-                await close_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await close_redis_rate_limit_pool()
+        initialization_complete.set()
+        yield
 
     return lifespan
 
@@ -135,16 +64,7 @@ def lifespan_factory(
 # -------------- application --------------
 def create_application(
     router: APIRouter,
-    settings: (
-        DatabaseSettings
-        | RedisCacheSettings
-        | AppSettings
-        | ClientSideCacheSettings
-        | CORSSettings
-        | RedisQueueSettings
-        | RedisRateLimiterSettings
-        | EnvironmentSettings
-    ),
+    settings: (DatabaseSettings | AppSettings | ClientSideCacheSettings | CORSSettings | EnvironmentSettings),
     create_tables_on_start: bool = True,
     lifespan: Callable[[FastAPI], _AsyncGeneratorContextManager[Any]] | None = None,
     **kwargs: Any,
@@ -203,9 +123,8 @@ def create_application(
     if isinstance(settings, EnvironmentSettings):
         kwargs.update({"docs_url": None, "redoc_url": None, "openapi_url": None})
 
-    # Use custom lifespan if provided, otherwise use default factory
     if lifespan is None:
-        lifespan = lifespan_factory(settings, create_tables_on_start=create_tables_on_start)
+        lifespan = lifespan_factory(settings, run_migrations_on_start=create_tables_on_start)
 
     application = FastAPI(lifespan=lifespan, **kwargs)
     application.include_router(router)
@@ -225,8 +144,6 @@ def create_application(
     if isinstance(settings, EnvironmentSettings):
         if settings.ENVIRONMENT != EnvironmentOption.PRODUCTION:
             docs_router = APIRouter()
-            if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
-                docs_router = APIRouter(dependencies=[Depends(get_current_superuser)])
 
             @docs_router.get("/docs", include_in_schema=False)
             async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:
